@@ -22,6 +22,7 @@
 
 #include <cilk/cilk.h>
 #include "../cilktool/cilktool.h"
+#include <cilk/reducer.h>
 
 #include <math.h>
 #include <stdbool.h>
@@ -38,7 +39,9 @@
 #define TO_PRINT (3)  // number of sample solutions to print
 #define BITMASK (255)  // 8 "1"s
 
-void merge_lists(BoardList* list1, BoardList* list2) {
+typedef CILK_C_DECLARE_REDUCER(BoardList) BoardListReducer;
+
+inline void merge_lists(BoardList* list1, BoardList* list2) {
   if (list2->head == NULL) return;
 
   // Append
@@ -58,6 +61,26 @@ void merge_lists(BoardList* list1, BoardList* list2) {
   list2->size = 0;
 }
 
+// Evaluates *left = *left OPERATOR *right.
+void board_list_reduce(void* key, void* left, void* right) {
+  merge_lists((BoardList*) left, (BoardList*) right);
+}
+
+// Sets *value to the identity value.
+void board_list_identity(void* key, void* value) {
+  BoardList identity = { .head = NULL, .tail = NULL, .size = 0 };
+  *(BoardList*) value = identity;
+}
+
+// Destroys any dynamically allocated memory.
+void board_list_destroy(void* key, void* value) {
+  delete_nodes((BoardList*) value);
+}
+
+BoardListReducer blr = CILK_C_INIT_REDUCER(BoardList,
+              board_list_reduce, board_list_identity, board_list_destroy,
+              (BoardList) { .head = NULL, .tail = NULL, .size = 0 });
+
 void queens(BoardList * board_list, board_t cur_board, int row, int down,
             int left, int right) {
   if (row == N) {
@@ -66,34 +89,30 @@ void queens(BoardList * board_list, board_t cur_board, int row, int down,
   } else {
     int open_cols_bitmap = BITMASK & ~(down | left | right);
 
-
-    BoardList board_lists[8];
-    for (int j = 0; j < 8; j++) {
-      BoardList l = { .head = NULL, .tail = NULL, .size = 0 };
-      board_lists[j] = l;
-    }
-    int i = 0;
     while (open_cols_bitmap != 0) {
       int bit = -open_cols_bitmap & open_cols_bitmap;
       int col = log2(bit);
       open_cols_bitmap ^= bit;
       
-      // Recurse! This can be parallelized.
-      cilk_spawn queens(&board_lists[i], cur_board | board_bitmask(row, col), row + 1, 
+      if (row < 2) {
+        cilk_spawn queens(board_list, cur_board | board_bitmask(row, col), row + 1, 
+            down | bit, (left | bit) << 1, (right | bit) >> 1);
+      } else {
+        queens(board_list, cur_board | board_bitmask(row, col), row + 1, 
           down | bit, (left | bit) << 1, (right | bit) >> 1);
-
-      i++;
+      }
     }
     cilk_sync;
-    for (i--; i >= 0; i--)
-      merge_lists(board_list, &board_lists[i]);
   }
 }
 
 int run_queens(bool verbose) {
   BoardList board_list = { .head = NULL, .tail = NULL, .size = 0 };
 
+  CILK_C_REGISTER_REDUCER(blr);
+  board_list = REDUCER_VIEW(blr);
   queens(&board_list, (board_t) 0, 0, 0, 0, 0);
+  CILK_C_UNREGISTER_REDUCER(blr);
   int num_solutions = board_list.size;
 
   if (verbose) {
@@ -107,7 +126,6 @@ int run_queens(bool verbose) {
       num_printed++;
     }
   }
-  delete_nodes(&board_list);
   return num_solutions;
 }
 
