@@ -38,6 +38,26 @@
 #define TO_PRINT (3)  // number of sample solutions to print
 #define BITMASK (255)  // 8 "1"s
 
+void merge_lists(BoardList* list1, BoardList* list2) {
+  if (list2->head == NULL) return;
+
+  // Append
+  if (list1->tail != NULL) {
+    list1->tail->next = list2->head;
+  } else {
+    list1->head = list2->head;
+  }
+
+  // Clean up head, size
+  list1->tail = list2->tail;
+  list1->size += list2->size;
+
+  // Reset list 2
+  list2->head = NULL;
+  list2->tail = NULL;
+  list2->size = 0;
+}
+
 void queens(BoardList * board_list, board_t cur_board, int row, int down,
             int left, int right) {
   if (row == N) {
@@ -46,15 +66,27 @@ void queens(BoardList * board_list, board_t cur_board, int row, int down,
   } else {
     int open_cols_bitmap = BITMASK & ~(down | left | right);
 
+
+    BoardList board_lists[8];
+    for (int j = 0; j < 8; j++) {
+      BoardList l = { .head = NULL, .tail = NULL, .size = 0 };
+      board_lists[j] = l;
+    }
+    int i = 0;
     while (open_cols_bitmap != 0) {
       int bit = -open_cols_bitmap & open_cols_bitmap;
       int col = log2(bit);
       open_cols_bitmap ^= bit;
       
       // Recurse! This can be parallelized.
-      queens(board_list, cur_board | board_bitmask(row, col), row + 1, 
+      cilk_spawn queens(&board_lists[i], cur_board | board_bitmask(row, col), row + 1, 
           down | bit, (left | bit) << 1, (right | bit) >> 1);
+
+      i++;
     }
+    cilk_sync;
+    for (i--; i >= 0; i--)
+      merge_lists(board_list, &board_lists[i]);
   }
 }
 

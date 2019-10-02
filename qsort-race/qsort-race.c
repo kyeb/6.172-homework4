@@ -71,8 +71,8 @@ void my_qsort(int* begin, int* end) {
   *middle = tmp;
 
   // Recurse on the left and right partitions.
-  cilk_spawn my_qsort(begin, middle);
-  my_qsort(max(begin + 1, middle), end);
+  cilk_spawn my_qsort(max(begin + 1, middle), end);
+  my_qsort(begin, middle);
   cilk_sync;
 }
 
