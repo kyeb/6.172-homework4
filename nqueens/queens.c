@@ -20,16 +20,16 @@
  * IN THE SOFTWARE.
  **/
 
-#include <cilk/cilk.h>
-#include "../cilktool/cilktool.h"
-#include <cilk/reducer.h>
-
 #include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <cilk/cilk.h>
+#include <cilk/reducer.h>
+#include "../cilktool/cilktool.h"
 #include "board.h"
 #include "fasttime.h"
+
 
 // board.h defines N, board_t, and helper functions.
 
@@ -38,6 +38,8 @@
 // Feel free to make this 0.
 #define TO_PRINT (3)  // number of sample solutions to print
 #define BITMASK (255)  // 8 "1"s
+
+#define BASEDEPTH 2
 
 typedef CILK_C_DECLARE_REDUCER(BoardList) BoardListReducer;
 
@@ -93,12 +95,14 @@ void queens(BoardList * board_list, board_t cur_board, int row, int down,
       int bit = -open_cols_bitmap & open_cols_bitmap;
       int col = log2(bit);
       open_cols_bitmap ^= bit;
-      
-      if (row < 2) {
-        cilk_spawn queens(board_list, cur_board | board_bitmask(row, col), row + 1, 
+
+      // row < base depth indicates we're still in the top BASEDEPTH levels of the
+      //     computation DAG, so we parallelize the call. Otherwise, recurse serially.
+      if (row < BASEDEPTH) {
+        cilk_spawn queens(board_list, cur_board | board_bitmask(row, col), row + 1,
             down | bit, (left | bit) << 1, (right | bit) >> 1);
       } else {
-        queens(board_list, cur_board | board_bitmask(row, col), row + 1, 
+        queens(board_list, cur_board | board_bitmask(row, col), row + 1,
           down | bit, (left | bit) << 1, (right | bit) >> 1);
       }
     }
@@ -112,8 +116,8 @@ int run_queens(bool verbose) {
   CILK_C_REGISTER_REDUCER(blr);
   board_list = REDUCER_VIEW(blr);
   queens(&board_list, (board_t) 0, 0, 0, 0, 0);
-  CILK_C_UNREGISTER_REDUCER(blr);
   int num_solutions = board_list.size;
+  CILK_C_UNREGISTER_REDUCER(blr);
 
   if (verbose) {
     // Print the first few solutions to check correctness.
@@ -131,16 +135,16 @@ int run_queens(bool verbose) {
 
 int main(int argc, char *argv[]) {
   int num_solutions = run_queens(true);
- // print_total();
+  // print_total();
 
-  //cv_start();
+  // cv_start();
   fasttime_t time1 = gettime();
   for (int i = 0; i < I; i++) {
     run_queens(false);
   }
   fasttime_t time2 = gettime();
 
-  //cv_stop();
+  // cv_stop();
   printf("Elapsed execution time: %f sec; N: %d, I: %d, num_solutions: %d\n",
          tdiff(time1, time2), N, I, num_solutions);
 
