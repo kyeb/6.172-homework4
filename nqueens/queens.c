@@ -39,7 +39,7 @@
 #define TO_PRINT (3)  // number of sample solutions to print
 #define BITMASK (255)  // 8 "1"s
 
-#define BASEDEPTH 2
+#define BASEDEPTH 1
 
 typedef CILK_C_DECLARE_REDUCER(BoardList) BoardListReducer;
 
@@ -87,7 +87,9 @@ void queens(BoardList * board_list, board_t cur_board, int row, int down,
             int left, int right) {
   if (row == N) {
     // A solution to 8 queens!
+    /* __cilksan_disable_checking(); */
     append_node(board_list, cur_board);
+    /* __cilksan_enable_checking(); */
   } else {
     int open_cols_bitmap = BITMASK & ~(down | left | right);
 
